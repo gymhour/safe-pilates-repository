@@ -1,0 +1,17 @@
+import express from 'express';
+import { cuotaMethods } from '../controllers/cuota.Controller.js';
+import { authenticateToken, isAdmin } from '../services/auth.service.js';
+
+const cuotaRouter = express.Router();
+
+
+cuotaRouter.get("/", authenticateToken, isAdmin, cuotaMethods.getAllCuotas);
+cuotaRouter.get("/usuario/:idUsuario/cuotas", authenticateToken, cuotaMethods.getAllCuotasByUsuario);
+cuotaRouter.get("/reminder/:idUsuario", authenticateToken, cuotaMethods.getCuotasVencenPronto);
+cuotaRouter.post("/usuario/:idUsuario", authenticateToken, isAdmin, cuotaMethods.createCuota);
+cuotaRouter.post("/generate-cuotas", authenticateToken, isAdmin, cuotaMethods.generateMonthlyCuotas);
+cuotaRouter.put("/:id", authenticateToken, isAdmin, cuotaMethods.updateCuota);
+cuotaRouter.put("/:id/pay", authenticateToken, isAdmin, cuotaMethods.payCuota);
+cuotaRouter.delete("/:id", authenticateToken, isAdmin, cuotaMethods.deleteCuota);
+
+export default cuotaRouter;

@@ -1,0 +1,18 @@
+{
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/api"
+        }
+    ],
+    "crons": [
+        {
+            "path": "/api/cron/checkVencidas",
+            "schedule": "1 3 * * *"
+        },
+        {
+            "path": "/api/cron/sendBirthdayEmails",
+            "schedule": "30 3 * * *"
+        }
+    ]
+}

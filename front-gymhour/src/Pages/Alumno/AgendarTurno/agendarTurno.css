@@ -1,0 +1,146 @@
+@import 'react-datepicker/dist/react-datepicker.css';
+@import '../../../variables.css';
+
+.agendar-turno-ctn {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    max-width: 400px;
+}
+
+.react-datepicker-wrapper {
+    width: 100%;
+}
+
+.custom-date-picker-input {
+    width: 100%;
+    max-width: 300px;
+    background-color: var(--background-color-distinct);
+    border: none;
+    color: var(--text-color);
+}
+
+.react-datepicker__triangle {
+    display: none;
+}
+
+.react-datepicker {
+    background-color: var(--background-color) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-color) !important;
+}
+
+.react-datepicker__header {
+    background-color: var(--background-color) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--text-color);
+}
+
+.react-datepicker__current-month,
+.react-datepicker-time__header,
+.react-datepicker-year-header {
+    color: var(--text-color) !important;
+}
+
+/* Días en el calendario */
+.react-datepicker__day-name,
+.react-datepicker__day,
+.react-datepicker__time-name {
+    color: var(--text-color) !important;
+}
+
+/* Día seleccionado */
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected {
+    background-color: var(--background-color-distinct) !important;
+    color: var(--text-color) !important;
+}
+
+/* Días fuera del mes actual */
+.react-datepicker__day--outside-month {
+    color: var(--background-color-distinct) !important;
+}
+
+/* Hover en días */
+.react-datepicker__day:hover {
+    background-color: var(--background-color-distinct) !important;
+}
+
+/* Contenedor de la lista de horas */
+.react-datepicker__time-container .react-datepicker__time {
+    background-color: var(--background-color) !important;
+    color: var(--text-color);
+}
+
+/* Lista de horas */
+.react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box .react-datepicker__time-list-item {
+    background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+/* Hover en la lista de horas */
+.react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box .react-datepicker__time-list-item:hover {
+    background-color: var(--background-color-distinct) !important;
+}
+
+/* Hora seleccionada */
+.react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box .react-datepicker__time-list-item--selected {
+    background-color: var(--background-color-distinct) !important;
+    color: var(--text-color) !important;
+}
+
+/* Estilo para fechas deshabilitadas */
+.react-datepicker__day--disabled {
+    color: var(--medium-grey) !important;
+    /* Color inactivo */
+    opacity: 0.5 !important;
+    pointer-events: none;
+    /* Opcional: para evitar interacción */
+}
+
+.react-datepicker__day--today {
+    color: var(--primary-color);
+}
+
+.react-datepicker__time-list-item--disabled {
+    display: none;
+}
+
+.custom-date-picker-input:enabled::placeholder {
+    color: var(--text-color-distinct);
+    /* Color para el placeholder cuando el input está habilitado */
+    opacity: 1;
+    /* Asegura que no se vea semitransparente */
+}
+
+/* Opcional: puedes definir un estilo distinto para cuando el input esté deshabilitado */
+.custom-date-picker-input:disabled::placeholder {
+    color: #aaa;
+    /* Color diferente para el placeholder en estado deshabilitado */
+}
+
+@media screen and (max-width: 500px) {
+    .agendar-turno-title {
+        text-align: center;
+    }
+
+    .agendar-turno-ctn {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .react-datepicker {
+        width: 100% !important;
+    }
+
+    .datepicker-container {
+        width: 100% !important;
+    }
+
+    .custom-date-picker-input {
+        max-width: none;
+    }
+}
