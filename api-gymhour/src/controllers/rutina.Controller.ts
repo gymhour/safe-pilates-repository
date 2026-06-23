@@ -3,14 +3,120 @@ import { Request, Response } from "express";
 import prisma from "../models/Prisma.js";
 import { getImageUrl } from '../services/cloudinary.service.js';
 
+const parseIdList = (value: unknown): number[] => {
+    if (!Array.isArray(value)) return [];
+    return Array.from(new Set(
+        value
+            .map(id => Number(id))
+            .filter(id => Number.isInteger(id) && id > 0)
+    ));
+};
+
+const rutinaAsignacionesInclude = {
+    asignacionesUsuarios: {
+        include: {
+            usuario: {
+                select: {
+                    ID_Usuario: true,
+                    nombre: true,
+                    apellido: true,
+                    dni: true,
+                    email: true,
+                    tipo: true,
+                    estado: true,
+                    observacionesSalud: true,
+                    fichaMedicaUrl: true
+                }
+            }
+        }
+    },
+    asignacionesGrupos: {
+        include: {
+            grupoUsuario: {
+                select: {
+                    ID_GrupoUsuario: true,
+                    nombre: true,
+                    descripcion: true,
+                    estado: true,
+                    miembros: {
+                        include: {
+                            usuario: {
+                                select: {
+                                    ID_Usuario: true,
+                                    nombre: true,
+                                    apellido: true,
+                                    dni: true,
+                                    email: true,
+                                    tipo: true,
+                                    estado: true,
+                                    observacionesSalud: true,
+                                    fichaMedicaUrl: true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+};
+
+const mapAsignacionesRutina = (rutinaFull: any) => ({
+    asignacionesUsuarios: (rutinaFull.asignacionesUsuarios || []).map((a: any) => a.usuario),
+    asignacionesGrupos: (rutinaFull.asignacionesGrupos || []).map((a: any) => ({
+        ID_GrupoUsuario: a.grupoUsuario.ID_GrupoUsuario,
+        nombre: a.grupoUsuario.nombre,
+        descripcion: a.grupoUsuario.descripcion,
+        estado: a.grupoUsuario.estado,
+        miembros: (a.grupoUsuario.miembros || []).map((m: any) => m.usuario)
+    }))
+});
+
+const syncRutinaAsignaciones = async (
+    tx: any,
+    idRutina: number,
+    usuariosAsignadosRaw: unknown,
+    gruposAsignadosRaw: unknown,
+    fallbackUsuarioId?: number | null
+) => {
+    const usuariosAsignados = parseIdList(usuariosAsignadosRaw);
+    const gruposAsignados = parseIdList(gruposAsignadosRaw);
+    const shouldSyncUsuarios = Array.isArray(usuariosAsignadosRaw) || typeof fallbackUsuarioId === 'number';
+    const shouldSyncGrupos = Array.isArray(gruposAsignadosRaw);
+
+    if (shouldSyncUsuarios) {
+        const ids = usuariosAsignados.length
+            ? usuariosAsignados
+            : (fallbackUsuarioId ? [fallbackUsuarioId] : []);
+        await tx.rutinaAsignacionUsuario.deleteMany({ where: { ID_Rutina: idRutina } });
+        if (ids.length) {
+            await tx.rutinaAsignacionUsuario.createMany({
+                data: ids.map(ID_Usuario => ({ ID_Rutina: idRutina, ID_Usuario })),
+                skipDuplicates: true
+            });
+        }
+    }
+
+    if (shouldSyncGrupos) {
+        await tx.rutinaAsignacionGrupo.deleteMany({ where: { ID_Rutina: idRutina } });
+        if (gruposAsignados.length) {
+            await tx.rutinaAsignacionGrupo.createMany({
+                data: gruposAsignados.map(ID_GrupoUsuario => ({ ID_Rutina: idRutina, ID_GrupoUsuario })),
+                skipDuplicates: true
+            });
+        }
+    }
+};
+
 export const getAllRutinasWithDetails = async (req: Request, res: Response): Promise<void> => {
     try {
         const rutinas = await prisma.rutina.findMany({
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
-                User: { select: { nombre: true, apellido: true, tipo: true } },
-                Entrenador: { select: { nombre: true, apellido: true, tipo: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -135,12 +241,14 @@ export const getAllRutinasWithDetails = async (req: Request, res: Response): Pro
                 desc: rutinaFull.desc,
                 claseRutina: rutinaFull.claseRutina,
                 grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+                urlPlanificacion: rutinaFull.urlPlanificacion,
                 createdAt: rutinaFull.createdAt,
                 updatedAt: rutinaFull.updatedAt,
                 alumno: rutinaFull.User,
                 entrenador: rutinaFull.Entrenador,
                 dias: diasMap,
-                semanas: Object.values(semanasMap)
+                semanas: Object.values(semanasMap),
+                ...mapAsignacionesRutina(rutinaFull)
             };
         });
 
@@ -269,8 +377,9 @@ export const getRutinaById = async (req: Request, res: Response): Promise<void> 
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
-                User: { select: { nombre: true, apellido: true, tipo: true, email: true } },
-                Entrenador: { select: { nombre: true, apellido: true, tipo: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -386,12 +495,14 @@ export const getRutinaById = async (req: Request, res: Response): Promise<void> 
             desc: rutina.desc,
             claseRutina: rutina.claseRutina,
             grupoMuscularRutina: rutina.grupoMuscularRutina,
+            urlPlanificacion: rutina.urlPlanificacion,
             createdAt: rutina.createdAt,
             updatedAt: rutina.updatedAt,
             alumno: rutina.User,
             entrenador: rutina.Entrenador,
             dias: diasMap,
-            semanas: Object.values(semanasMap)
+            semanas: Object.values(semanasMap),
+            ...mapAsignacionesRutina(rutina)
         };
 
         res.status(200).json({
@@ -550,15 +661,18 @@ export const updateRutinaWithBlocks = async (req: Request, res: Response): Promi
         desc,
         claseRutina,
         grupoMuscularRutina,
+        urlPlanificacion,
         dias,
         semanas,
         bloques: legacyBloques,
-        ID_Usuario
+        ID_Usuario,
+        usuariosAsignados,
+        gruposAsignados
     } = req.body;
 
     if (
         isNaN(idRutina) ||
-        (!nombre && !desc && !claseRutina && !grupoMuscularRutina && !dias && !semanas && !legacyBloques)
+        (!nombre && !desc && !claseRutina && !grupoMuscularRutina && !urlPlanificacion && !dias && !semanas && !legacyBloques && !Array.isArray(usuariosAsignados) && !Array.isArray(gruposAsignados))
     ) {
         res.status(400).json({ message: "Datos insuficientes o inválidos" });
         return;
@@ -570,6 +684,7 @@ export const updateRutinaWithBlocks = async (req: Request, res: Response): Promi
         if (typeof desc === 'string') dataRutina.desc = desc;
         if (typeof claseRutina === 'string') dataRutina.claseRutina = claseRutina;
         if (typeof grupoMuscularRutina === 'string') dataRutina.grupoMuscularRutina = grupoMuscularRutina;
+        if (typeof urlPlanificacion !== 'undefined') dataRutina.urlPlanificacion = urlPlanificacion?.trim() || null;
 
         if (typeof ID_Usuario !== 'undefined' && ID_Usuario !== null) {
             const idUserNum = Number(ID_Usuario);
@@ -582,6 +697,20 @@ export const updateRutinaWithBlocks = async (req: Request, res: Response): Promi
 
         if (Object.keys(dataRutina).length > 0) {
             await prisma.rutina.update({ where: { ID_Rutina: idRutina }, data: dataRutina });
+        }
+
+        await syncRutinaAsignaciones(
+            prisma,
+            idRutina,
+            Array.isArray(usuariosAsignados) ? usuariosAsignados : undefined,
+            Array.isArray(gruposAsignados) ? gruposAsignados : undefined,
+            typeof dataRutina.ID_Usuario === 'number' && !Array.isArray(usuariosAsignados) ? dataRutina.ID_Usuario : null
+        );
+
+        const shouldRebuildStructure = Boolean(dias || semanas || legacyBloques);
+        if (!shouldRebuildStructure) {
+            await getRutinaById(req, res);
+            return;
         }
 
         // clean slate bloques y bloqueEjercicios
@@ -791,6 +920,9 @@ export const updateRutinaWithBlocks = async (req: Request, res: Response): Promi
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -890,10 +1022,12 @@ export const updateRutinaWithBlocks = async (req: Request, res: Response): Promi
             desc: rutinaFull.desc,
             claseRutina: rutinaFull.claseRutina,
             grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+            urlPlanificacion: rutinaFull.urlPlanificacion,
             createdAt: rutinaFull.createdAt,
             updatedAt: rutinaFull.updatedAt,
             dias: diasMap,
-            semanas: Object.values(semanasMap)
+            semanas: Object.values(semanasMap),
+            ...mapAsignacionesRutina(rutinaFull)
         };
 
         res.status(200).json({ message: "Rutina actualizada exitosamente", rutina: rutinaResp });
@@ -1190,6 +1324,124 @@ export const updateRutinaWithBlocks = async (req: Request, res: Response): Promi
 //     }
 // };
 
+export const createRutinaSimple = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const {
+            ID_Usuario,
+            ID_Entrenador,
+            nombre,
+            desc,
+            claseRutina,
+            grupoMuscularRutina,
+            urlPlanificacion,
+            usuariosAsignados,
+            gruposAsignados
+        } = req.body;
+
+        const usuariosAsignadosIds = parseIdList(usuariosAsignados);
+        const gruposAsignadosIds = parseIdList(gruposAsignados);
+        const legacyUsuarioId = Number(ID_Usuario) || usuariosAsignadosIds[0] || Number(req.user?.ID_Usuario);
+
+        if (!legacyUsuarioId || !nombre) {
+            res.status(400).json({ message: "Faltan campos obligatorios: ID_Usuario o nombre" });
+            return;
+        }
+
+        if (Array.isArray(usuariosAsignados) || Array.isArray(gruposAsignados)) {
+            if (usuariosAsignadosIds.length === 0 && gruposAsignadosIds.length === 0) {
+                res.status(400).json({ message: "Seleccioná al menos un usuario o grupo para asignar la rutina" });
+                return;
+            }
+        }
+
+        if (Array.isArray(gruposAsignados) && gruposAsignadosIds.length > 0) {
+            const gruposCount = await prisma.grupoUsuario.count({
+                where: { ID_GrupoUsuario: { in: gruposAsignadosIds }, estado: true }
+            });
+            if (gruposCount !== gruposAsignadosIds.length) {
+                res.status(400).json({ message: "Uno o más grupos asignados no existen o están inactivos" });
+                return;
+            }
+        }
+
+        if ((Array.isArray(usuariosAsignados) && usuariosAsignadosIds.length > 0) || legacyUsuarioId) {
+            const idsValidar = Array.from(new Set([...usuariosAsignadosIds, legacyUsuarioId]));
+            const usuariosCount = await prisma.user.count({
+                where: { ID_Usuario: { in: idsValidar } }
+            });
+            if (usuariosCount !== idsValidar.length) {
+                res.status(400).json({ message: "Uno o más usuarios asignados no existen" });
+                return;
+            }
+        }
+
+        const rutina = await prisma.rutina.create({
+            data: {
+                ID_Usuario: legacyUsuarioId,
+                ID_Entrenador: ID_Entrenador ?? null,
+                nombre,
+                desc: desc?.trim() || undefined,
+                claseRutina: claseRutina?.trim() || undefined,
+                grupoMuscularRutina: grupoMuscularRutina?.trim() || undefined,
+                urlPlanificacion: urlPlanificacion?.trim() || null,
+            },
+            include: {
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude
+            }
+        });
+
+        const rutinaId = rutina.ID_Rutina;
+
+        await syncRutinaAsignaciones(
+            prisma,
+            rutinaId,
+            Array.isArray(usuariosAsignados) ? usuariosAsignadosIds : undefined,
+            Array.isArray(gruposAsignados) ? gruposAsignadosIds : undefined,
+            Array.isArray(usuariosAsignados) ? null : legacyUsuarioId
+        );
+
+        const rutinaConAsignaciones = await prisma.rutina.findUnique({
+            where: { ID_Rutina: rutinaId },
+            include: {
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude
+            }
+        });
+
+        if (!rutinaConAsignaciones) {
+            res.status(500).json({ message: "Error al recuperar la rutina creada" });
+            return;
+        }
+
+        const rutinaResp = {
+            ID_Rutina: rutinaConAsignaciones.ID_Rutina,
+            nombre: rutinaConAsignaciones.nombre,
+            desc: rutinaConAsignaciones.desc,
+            claseRutina: rutinaConAsignaciones.claseRutina,
+            grupoMuscularRutina: rutinaConAsignaciones.grupoMuscularRutina,
+            urlPlanificacion: rutinaConAsignaciones.urlPlanificacion,
+            createdAt: rutinaConAsignaciones.createdAt,
+            updatedAt: rutinaConAsignaciones.updatedAt,
+            alumno: rutinaConAsignaciones.User,
+            entrenador: rutinaConAsignaciones.Entrenador,
+            dias: {},
+            semanas: [],
+            ...mapAsignacionesRutina(rutinaConAsignaciones)
+        };
+
+        res.status(201).json({
+            message: "Rutina simple creada exitosamente",
+            rutina: rutinaResp
+        });
+    } catch (error: any) {
+        console.error("Error creando rutina simple:", error);
+        res.status(500).json({ message: "Error al crear rutina simple", error: error.message });
+    }
+};
+
 export const createRutinaWithBlocks = async (req: Request, res: Response): Promise<void> => {
     try {
         const {
@@ -1199,19 +1451,58 @@ export const createRutinaWithBlocks = async (req: Request, res: Response): Promi
             desc,
             claseRutina,
             grupoMuscularRutina,
+            usuariosAsignados,
+            gruposAsignados,
             dias: diasObj,       // opcional: { lun: { nombre, descripcion, bloques: [...] }, ... }
             semanas: semanasObj  // opcional: { s1: { nombre, numero, dias: { lun: {...}, mar: {...} } }, ... }
         } = req.body;
 
-        if (!ID_Usuario || !nombre) {
+        const usuariosAsignadosIds = parseIdList(usuariosAsignados);
+        const gruposAsignadosIds = parseIdList(gruposAsignados);
+        const legacyUsuarioId = Number(ID_Usuario) || usuariosAsignadosIds[0] || Number(req.user?.ID_Usuario);
+
+        if (!legacyUsuarioId || !nombre) {
             res.status(400).json({ message: "Faltan campos obligatorios: ID_Usuario o nombre" });
+            return;
+        }
+
+        if (Array.isArray(usuariosAsignados) || Array.isArray(gruposAsignados)) {
+            if (usuariosAsignadosIds.length === 0 && gruposAsignadosIds.length === 0) {
+                res.status(400).json({ message: "Seleccioná al menos un usuario o grupo para asignar la rutina" });
+                return;
+            }
+        }
+
+        if (Array.isArray(gruposAsignados) && gruposAsignadosIds.length > 0) {
+            const gruposCount = await prisma.grupoUsuario.count({
+                where: { ID_GrupoUsuario: { in: gruposAsignadosIds }, estado: true }
+            });
+            if (gruposCount !== gruposAsignadosIds.length) {
+                res.status(400).json({ message: "Uno o más grupos asignados no existen o están inactivos" });
+                return;
+            }
+        }
+
+        if ((Array.isArray(usuariosAsignados) && usuariosAsignadosIds.length > 0) || legacyUsuarioId) {
+            const idsValidar = Array.from(new Set([...usuariosAsignadosIds, legacyUsuarioId]));
+            const usuariosCount = await prisma.user.count({
+                where: { ID_Usuario: { in: idsValidar } }
+            });
+            if (usuariosCount !== idsValidar.length) {
+                res.status(400).json({ message: "Uno o más usuarios asignados no existen" });
+                return;
+            }
+        }
+
+        if (!ID_Usuario && !Array.isArray(usuariosAsignados)) {
+            res.status(400).json({ message: "Faltan campos obligatorios: ID_Usuario o usuariosAsignados" });
             return;
         }
 
         // 1) Crear rutina padre
         const rutina = await prisma.rutina.create({
             data: {
-                ID_Usuario,
+                ID_Usuario: legacyUsuarioId,
                 ID_Entrenador: ID_Entrenador ?? null,
                 nombre,
                 desc: desc?.trim() || undefined,
@@ -1220,6 +1511,14 @@ export const createRutinaWithBlocks = async (req: Request, res: Response): Promi
             }
         });
         const rutinaId = rutina.ID_Rutina;
+
+        await syncRutinaAsignaciones(
+            prisma,
+            rutinaId,
+            Array.isArray(usuariosAsignados) ? usuariosAsignadosIds : undefined,
+            Array.isArray(gruposAsignados) ? gruposAsignadosIds : undefined,
+            Array.isArray(usuariosAsignados) ? null : legacyUsuarioId
+        );
 
         // 2) Recolectar nuevos ejercicios (dedupe global)
         const newEjercicioKeyMap = new Map<string, { nombre: string; descripcion?: string; mediaUrl?: string }>();
@@ -1413,6 +1712,9 @@ export const createRutinaWithBlocks = async (req: Request, res: Response): Promi
                 Semanas: {
                     include: { Dias: true }
                 },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -1507,7 +1809,8 @@ export const createRutinaWithBlocks = async (req: Request, res: Response): Promi
             createdAt: rutinaFull.createdAt,
             updatedAt: rutinaFull.updatedAt,
             dias: diasMap,
-            semanas: Object.values(semanasMap) // array de semanas con sus dias
+            semanas: Object.values(semanasMap), // array de semanas con sus dias
+            ...mapAsignacionesRutina(rutinaFull)
         };
 
         res.status(201).json({ message: "Rutina creada exitosamente", rutina: rutinaResp });
@@ -1811,14 +2114,38 @@ export const getRutinasByUsuario = async (req: Request, res: Response): Promise<
         return;
     }
 
+    // Ownership: un cliente sólo puede ver sus propias rutinas; admin/entrenador, cualquiera.
+    const requester = req.user;
+    const isStaff = ['admin', 'entrenador'].includes(String(requester?.tipo || '').toLowerCase());
+    if (!isStaff && requester?.ID_Usuario !== idUsuario) {
+        res.status(403).json({ message: "No tenés permiso para ver las rutinas de otro usuario" });
+        return;
+    }
+
     try {
         const rutinas = await prisma.rutina.findMany({
-            where: { ID_Usuario: idUsuario },
+            where: {
+                OR: [
+                    { asignacionesUsuarios: { some: { ID_Usuario: idUsuario } } },
+                    {
+                        asignacionesGrupos: {
+                            some: {
+                                grupoUsuario: {
+                                    estado: true,
+                                    miembros: { some: { ID_Usuario: idUsuario } }
+                                }
+                            }
+                        }
+                    },
+                    { ID_Usuario: idUsuario }
+                ]
+            },
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
-                User: { select: { nombre: true, apellido: true, tipo: true } },
-                Entrenador: { select: { nombre: true, apellido: true, tipo: true, imagenUsuario: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, imagenUsuario: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -1941,12 +2268,14 @@ export const getRutinasByUsuario = async (req: Request, res: Response): Promise<
                 desc: rutinaFull.desc,
                 claseRutina: rutinaFull.claseRutina,
                 grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+                urlPlanificacion: rutinaFull.urlPlanificacion,
                 createdAt: rutinaFull.createdAt,
                 updatedAt: rutinaFull.updatedAt,
                 alumno: rutinaFull.User,
                 entrenador: rutinaFull.Entrenador,
                 dias: diasMap,
-                semanas: Object.values(semanasMap)
+                semanas: Object.values(semanasMap),
+                ...mapAsignacionesRutina(rutinaFull)
             };
         });
 
@@ -1973,8 +2302,9 @@ export const getRutinasByEntrenador = async (req: Request, res: Response): Promi
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
-                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
-                Entrenador: { select: { nombre: true, apellido: true, tipo: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -2093,12 +2423,14 @@ export const getRutinasByEntrenador = async (req: Request, res: Response): Promi
                 desc: rutinaFull.desc,
                 claseRutina: rutinaFull.claseRutina,
                 grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+                urlPlanificacion: rutinaFull.urlPlanificacion,
                 createdAt: rutinaFull.createdAt,
                 updatedAt: rutinaFull.updatedAt,
                 alumno: rutinaFull.User,
                 entrenador: rutinaFull.Entrenador,
                 dias: diasMap,
-                semanas: Object.values(semanasMap)
+                semanas: Object.values(semanasMap),
+                ...mapAsignacionesRutina(rutinaFull)
             };
         });
 
@@ -2115,12 +2447,17 @@ export const getRutinasByEntrenador = async (req: Request, res: Response): Promi
 export const getRutinasByAdmins = async (req: Request, res: Response): Promise<void> => {
     try {
         const rutinas = await prisma.rutina.findMany({
-            where: { User: { is: { tipo: 'admin' } } },
+            where: {
+                User: { is: { tipo: 'admin' } },
+                ID_Entrenador: null,                 // recomendadas: nunca tienen entrenador (las asignadas siempre lo setean)
+                asignacionesGrupos: { none: {} },    // ni grupo asignado
+            },
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
-                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
                 Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -2239,12 +2576,14 @@ export const getRutinasByAdmins = async (req: Request, res: Response): Promise<v
                 desc: rutinaFull.desc,
                 claseRutina: rutinaFull.claseRutina,
                 grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+                urlPlanificacion: rutinaFull.urlPlanificacion,
                 createdAt: rutinaFull.createdAt,
                 updatedAt: rutinaFull.updatedAt,
                 alumno: rutinaFull.User,
                 entrenador: rutinaFull.Entrenador,
                 dias: diasMap,
-                semanas: Object.values(semanasMap)
+                semanas: Object.values(semanasMap),
+                ...mapAsignacionesRutina(rutinaFull)
             };
         });
 
@@ -2275,8 +2614,9 @@ export const getRutinasByDayOfWeek = async (req: Request, res: Response): Promis
             },
             include: {
                 DiasRutina: true,
-                User: { select: { nombre: true, apellido: true, tipo: true } },
-                Entrenador: { select: { nombre: true, apellido: true, tipo: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
+                Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -2357,6 +2697,7 @@ export const getRutinasByDayOfWeek = async (req: Request, res: Response): Promis
                 desc: rutinaFull.desc,
                 claseRutina: rutinaFull.claseRutina,
                 grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+                urlPlanificacion: rutinaFull.urlPlanificacion,
                 createdAt: rutinaFull.createdAt,
                 updatedAt: rutinaFull.updatedAt,
                 alumno: rutinaFull.User,
@@ -2377,13 +2718,32 @@ export const getRutinasByDayOfWeek = async (req: Request, res: Response): Promis
 
 export const getRutinasAsignadas = async (req: Request, res: Response): Promise<void> => {
     try {
-        const rutinas = await prisma.rutina.findMany({
-            where: { NOT: [{ ID_Entrenador: null }] }, // solo rutinas que tienen entrenador
+        const pageNumber = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+        const take = Math.max(1, parseInt(String(req.query.take ?? '6'), 10) || 6);
+        const skip = (pageNumber - 1) * take;
+
+        const { grupoId, usuarioId, asignadasPorMi } = req.query;
+        const where: any = { NOT: [{ ID_Entrenador: null }] }; // solo rutinas que tienen entrenador
+        if (usuarioId && !isNaN(Number(usuarioId))) {
+            where.ID_Usuario = Number(usuarioId);
+        }
+        if (grupoId && !isNaN(Number(grupoId))) {
+            where.asignacionesGrupos = { some: { ID_GrupoUsuario: Number(grupoId) } };
+        }
+        if (String(asignadasPorMi) === 'true' && req.user?.ID_Usuario) {
+            where.ID_Entrenador = req.user.ID_Usuario;
+        }
+
+        const [totalItems, rutinas] = await prisma.$transaction([
+          prisma.rutina.count({ where }),
+          prisma.rutina.findMany({
+            where,
             include: {
                 DiasRutina: true,
                 Semanas: { include: { Dias: true } },
-                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true } },
+                User: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, email: true } },
                 Entrenador: { select: { ID_Usuario: true, nombre: true, apellido: true, tipo: true, imagenUsuario: true } },
+                ...rutinaAsignacionesInclude,
                 Bloques: {
                     include: {
                         rutinaDia: true,
@@ -2391,13 +2751,11 @@ export const getRutinasAsignadas = async (req: Request, res: Response): Promise<
                     }
                 }
             },
-            orderBy: { createdAt: 'desc' }
-        });
-
-        if (!rutinas || rutinas.length === 0) {
-            res.status(404).json({ message: `No se encontraron rutinas con entrenador asignado` });
-            return;
-        }
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take,
+          })
+        ]);
 
         const resultado = rutinas.map(rutinaFull => {
             const diasMap: Record<string, any> = {};
@@ -2504,17 +2862,21 @@ export const getRutinasAsignadas = async (req: Request, res: Response): Promise<
                 desc: rutinaFull.desc,
                 claseRutina: rutinaFull.claseRutina,
                 grupoMuscularRutina: rutinaFull.grupoMuscularRutina,
+                urlPlanificacion: rutinaFull.urlPlanificacion,
                 createdAt: rutinaFull.createdAt,
                 updatedAt: rutinaFull.updatedAt,
                 alumno: rutinaFull.User,
                 entrenador: rutinaFull.Entrenador,
                 dias: diasMap,
-                semanas: Object.values(semanasMap)
+                semanas: Object.values(semanasMap),
+                ...mapAsignacionesRutina(rutinaFull)
             };
         });
 
+        const totalPages = Math.ceil(totalItems / take) || 1;
         res.status(200).json({
             message: `Rutinas con entrenador asignado`,
+            meta: { totalItems, take, page: pageNumber, totalPages },
             rutinas: resultado
         });
     } catch (error: any) {
@@ -2528,6 +2890,7 @@ export const getRutinasAsignadas = async (req: Request, res: Response): Promise<
 export const rutinaMethods = {
     getAllRutinasWithDetails,
     getRutinaById,
+    createRutinaSimple,
     createRutinaWithBlocks,
     updateRutinaWithBlocks,
     deleteRutinaWithBlocks,

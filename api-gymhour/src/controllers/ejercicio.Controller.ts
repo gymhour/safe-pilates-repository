@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client';
 import { Request, Response } from 'express';
+import prisma from '../models/Prisma.js';
 import { deleteImage, getImageUrl, uploadImageBuffer } from '../services/cloudinary.service.js';
-
-const prisma = new PrismaClient();
 
 // CREATE
 export const createEjercicio = async (req: Request, res: Response): Promise<void> => {

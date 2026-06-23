@@ -10,6 +10,7 @@ const register = async (req: Request, res: Response): Promise<void> => {
   const {
     email,
     password,
+    dni,
     nombre,
     apellido,
     profesion,
@@ -34,11 +35,14 @@ const register = async (req: Request, res: Response): Promise<void> => {
     const user = await prisma.create({
       data: {
         email,
+        dni: dni || null,
         nombre: nombre || null,
         apellido: apellido || null,
         direc: direc || null,
         password: hashedPassword,
-        tipo: tipo || null,
+        // El registro público SIEMPRE crea clientes. La asignación de roles
+        // (admin/entrenador) sólo se hace por un endpoint protegido de admin.
+        tipo: "cliente",
         profesion: profesion || null,
         fechaCumple: fechaCumple || null,
         tel: tel || null,
@@ -54,9 +58,15 @@ const register = async (req: Request, res: Response): Promise<void> => {
     const token = authServices.generateToken(user);
     res.status(201).json({ token });
   } catch (error: any) {
-    if (error?.code === "P2002" && error?.meta?.target?.includes("email")) {
-      res.status(400).json({ message: "El email ya existe" });
-      return;
+    if (error?.code === "P2002") {
+      if (error?.meta?.target?.includes("email")) {
+        res.status(400).json({ message: "El email ya existe" });
+        return;
+      }
+      if (error?.meta?.target?.includes("dni")) {
+        res.status(400).json({ message: "El DNI ya existe" });
+        return;
+      }
     }
     console.error(error);
     res.status(500).json({ error: "Hubo un error en el registro" });

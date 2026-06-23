@@ -2,7 +2,11 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from "../models/user.interface.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret'
+const JWT_SECRET: string = process.env.JWT_SECRET ?? "";
+if (!JWT_SECRET) {
+  // Fail-closed: nunca firmar/verificar tokens con un secreto por defecto conocido.
+  throw new Error("FATAL: la variable de entorno JWT_SECRET no está definida.");
+}
 
 export const generateToken = (user: User): string => {
   return jwt.sign({ id: user.ID_Usuario, email: user.email, tipo: user.tipo }, JWT_SECRET, { expiresIn: '1h' })
@@ -62,10 +66,28 @@ export function isAdmin(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
+// Ownership: el propio usuario (token.id === :id), o staff (admin/entrenador) que puede ver a todos.
+export function isSelfOrStaff(req: Request, res: Response, next: NextFunction): void {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: 'No autorizado' });
+    return;
+  }
+  const targetId = Number.parseInt(req.params.id, 10);
+  const tipo = String(user.tipo ?? '').toLowerCase();
+  const esStaff = tipo === 'admin' || tipo === 'entrenador';
+  if (!esStaff && user.ID_Usuario !== targetId) {
+    res.status(403).json({ error: 'Acceso denegado: solo podés consultar tu propia información' });
+    return;
+  }
+  next();
+}
+
 export const authServices = {
   generateToken,
   authenticateToken,
   isAdmin,
   requireRoles,
-  isAdminOrEntrenador
+  isAdminOrEntrenador,
+  isSelfOrStaff
 };

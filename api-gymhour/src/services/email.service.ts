@@ -11,13 +11,21 @@ const transporter = nodemailer.createTransport({
 });
 
 export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  await transporter.sendMail(
+  const info = await transporter.sendMail(
     {
       from: process.env.SMTP_USER,
       to,
       subject,
       html,
     });
+  // Visibilidad en runtime logs: a quién se envió y si el servidor lo aceptó/rechazó.
+  console.log('[email] enviado', {
+    to,
+    subject,
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected,
+  });
 }
 export async function sendWelcomeEmail(email: string, nombre: string): Promise<void> {
   const displayName = escapeHtml(nombre.trim().length ? nombre.trim() : "amigo/a");
@@ -341,6 +349,165 @@ export async function sendBirthdayEmail(email: string, nombre?: string): Promise
 
   // sendEmail debe ser tu función existente que envía el mail (ya la usabas antes)
   await sendEmail(email, subject, html);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Recordatorios (crons): turno del día · cuota por vencer · inactividad
+// ───────────────────────────────────────────────────────────────────────────
+
+const money = (v: number): string => `$${Number(v || 0).toLocaleString("es-AR")}`;
+
+const emailShell = (heroBg: string, heroTitle: string, heroSubtitle: string, bodyHtml: string): string => `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="color-scheme" content="light" />
+    <style>
+      body,html { margin:0; padding:0; width:100%; background:#f4f6f8; font-family: Arial, Helvetica, sans-serif; }
+      a { text-decoration:none; }
+      .wrap { padding:24px 12px; }
+      .card { max-width:640px; margin:0 auto; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.06); }
+      .hero { padding:28px 24px; text-align:center; }
+      .hero h1 { margin:0; font-size:26px; color:#ffffff; }
+      .hero p { margin:8px 0 0; font-size:15px; color:#ffffff; opacity:.95; }
+      .content { padding:22px 24px; color:#333; line-height:1.5; }
+      .content p { margin:0 0 14px; font-size:15px; }
+      .btn { display:inline-block; background:#DA4632; color:#ffffff !important; padding:12px 22px; border-radius:8px; font-weight:700; }
+      .cta { text-align:center; margin:18px 0 6px; }
+      .footer { font-size:12px; color:#9ca3af; text-align:center; padding:14px 18px; border-top:1px solid #f3f4f6; }
+      @media (max-width:480px){ .hero h1{ font-size:22px } .content{ padding:16px } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="hero" style="background:${heroBg};">
+          <h1>${heroTitle}</h1>
+          <p>${heroSubtitle}</p>
+        </div>
+        <div class="content">
+          ${bodyHtml}
+        </div>
+        <div class="footer">GymHour App • ${new Date().getFullYear()}</div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+/** Recordatorio: el alumno tiene turno(s) hoy. */
+export async function sendTurnoReminderEmail(
+  email: string,
+  nombre: string,
+  turnos: Array<{ clase: string; horario: string }>
+): Promise<void> {
+  const displayName = escapeHtml(nombre?.trim() || "crack");
+  const frontendUrl = process.env.FRONTEND_URL ?? "#";
+  const subject = "📅 Recordatorio: hoy tenés turno en el gimnasio";
+
+  const items = turnos
+    .map(
+      (t) => `<tr>
+        <td style="padding:10px 12px; border:1px solid #eee; font-weight:700; color:#111;">${escapeHtml(t.clase)}</td>
+        <td style="padding:10px 12px; border:1px solid #eee; color:#444;">${escapeHtml(t.horario)} hs</td>
+      </tr>`
+    )
+    .join("");
+
+  const body = `
+    <p>¡Hola ${displayName}! 💪</p>
+    <p>Te recordamos que <strong>hoy tenés turno</strong>. Acá están los detalles:</p>
+    <table style="border-collapse:collapse; width:100%; margin:6px 0 14px;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:10px 12px; background:#fafafa; border:1px solid #eee; font-size:13px; color:#666;">Clase</th>
+          <th style="text-align:left; padding:10px 12px; background:#fafafa; border:1px solid #eee; font-size:13px; color:#666;">Horario</th>
+        </tr>
+      </thead>
+      <tbody>${items}</tbody>
+    </table>
+    <p>Dale que vos podés: cada entrenamiento te acerca a tu objetivo. 🔥</p>
+    <p><strong>¡Te esperamos!</strong></p>
+    <div class="cta"><a class="btn" href="${escapeHtml(frontendUrl)}" target="_blank" rel="noopener noreferrer">Ver mis turnos</a></div>
+  `;
+
+  await sendEmail(email, subject, emailShell("linear-gradient(90deg,#DA4632 0%, #ee6a52 100%)", "Hoy entrenás 💪", "Tu turno te está esperando", body));
+}
+
+/** Recordatorio: a la cuota le faltan ~3 días para vencer. */
+export async function sendCuotaPorVencerEmail(
+  email: string,
+  nombre: string,
+  data: { vence: Date; importe: number; mes: string; diasRestantes: number }
+): Promise<void> {
+  const displayName = escapeHtml(nombre?.trim() || "crack");
+  const frontendUrl = process.env.FRONTEND_URL ?? "#";
+  const venceStr = `${String(data.vence.getUTCDate()).padStart(2, "0")}/${String(data.vence.getUTCMonth() + 1).padStart(2, "0")}/${data.vence.getUTCFullYear()}`;
+  const dias = data.diasRestantes;
+  const subject = `⏰ Tu cuota vence en ${dias} día${dias === 1 ? "" : "s"}`;
+
+  const body = `
+    <p>¡Hola ${displayName}!</p>
+    <p>Te avisamos que tu cuota <strong>vence el ${venceStr}</strong> (en ${dias} día${dias === 1 ? "" : "s"}).</p>
+    <p style="margin:0 0 6px;">Detalle:</p>
+    <ul style="margin:0 0 14px; padding-left:18px; color:#444;">
+      <li>Período: <strong>${escapeHtml(data.mes)}</strong></li>
+      <li>Importe: <strong>${money(data.importe)}</strong></li>
+    </ul>
+    <p>Renová a tiempo y seguí entrenando sin interrupciones. 💪</p>
+    <div class="cta"><a class="btn" href="${escapeHtml(frontendUrl)}" target="_blank" rel="noopener noreferrer">Ver mi cuota</a></div>
+  `;
+
+  await sendEmail(email, subject, emailShell("linear-gradient(90deg,#f59e0b 0%, #f97316 100%)", "Tu cuota está por vencer ⏰", `Vence el ${venceStr}`, body));
+}
+
+/** Recordatorio: el alumno hace ~15 días que no asiste. */
+export async function sendInactividadEmail(email: string, nombre: string, dias: number): Promise<void> {
+  const displayName = escapeHtml(nombre?.trim() || "crack");
+  const frontendUrl = process.env.FRONTEND_URL ?? "#";
+  const subject = "💜 Te extrañamos en el gimnasio";
+
+  const body = `
+    <p>¡Hola ${displayName}!</p>
+    <p>Hace ${dias} días que no te vemos por el gimnasio y <strong>te extrañamos</strong>. 💜</p>
+    <p>Sabemos que arrancar de nuevo cuesta, pero el primer paso es el más importante: reservá tu próximo turno y volvé a tu rutina. ¡Tu mejor versión te está esperando!</p>
+    <p><strong>¿Volvemos a entrenar?</strong> 🔥</p>
+    <div class="cta"><a class="btn" href="${escapeHtml(frontendUrl)}" target="_blank" rel="noopener noreferrer">Reservar un turno</a></div>
+  `;
+
+  await sendEmail(email, subject, emailShell("linear-gradient(90deg,#7928ca 0%, #a855f7 100%)", "¡Te extrañamos! 💜", "Volvé a entrenar con todo", body));
+}
+
+/** Mail de retención enviado manualmente por el admin desde "Riesgo de baja".
+ *  El admin escribe texto plano; acá se escapa y se inyecta en la plantilla de marca. */
+export async function sendRetencionEmail(
+  email: string,
+  data: { nombre: string; asunto: string; mensaje: string }
+): Promise<void> {
+  const frontendUrl = process.env.FRONTEND_URL ?? "#";
+  const displayName = escapeHtml(data.nombre?.trim() || "");
+
+  // Texto plano → párrafos HTML escapados (los saltos de línea se respetan)
+  const parrafos = String(data.mensaje)
+    .split(/\n{2,}/)
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br/>")}</p>`)
+    .join("");
+
+  const body = `
+    ${parrafos}
+    <div class="cta"><a class="btn" href="${escapeHtml(frontendUrl)}" target="_blank" rel="noopener noreferrer">Reservar un turno</a></div>
+  `;
+
+  await sendEmail(
+    email,
+    data.asunto,
+    emailShell(
+      "linear-gradient(90deg,#DA4632 0%, #ee6a52 100%)",
+      escapeHtml(data.asunto),
+      displayName ? `Para ${displayName}` : "Tenemos un mensaje para vos",
+      body
+    )
+  );
 }
 
 /**

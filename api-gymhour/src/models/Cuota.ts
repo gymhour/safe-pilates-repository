@@ -1,5 +1,6 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+import prisma from "./Prisma.js";
+import type { Prisma } from "@prisma/client";
 
-const prisma = new PrismaClient();
-
+export { prisma as prismaClient };
 export default prisma.cuota;
+export type CuotaDelegate = typeof prisma.cuota;

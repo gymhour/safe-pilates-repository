@@ -1,7 +1,104 @@
 import { Request, Response } from "express";
 import prisma from "../models/Prisma.js";
 import { deleteImage, getImageUrl, uploadImageBuffer } from "../services/cloudinary.service.js";
+import { getArgentinaDate } from "../services/accessRules.service.js";
 
+const activeTurnoStates = ["ACTIVO", "ASISTIDO", "AUSENTE"];
+
+const normalizeDayName = (day?: string | null): string => (
+    (day || "")
+        .toString()
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+);
+
+const dayIndex = (day?: string | null): number | null => {
+    switch (normalizeDayName(day)) {
+        case "domingo": return 0;
+        case "lunes": return 1;
+        case "martes": return 2;
+        case "miercoles": return 3;
+        case "jueves": return 4;
+        case "viernes": return 5;
+        case "sabado": return 6;
+        default: return null;
+    }
+};
+
+const getWallClockTime = (value: Date | string | null | undefined): { hours: number; minutes: number } => {
+    if (!value) return { hours: 0, minutes: 0 };
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (!Number.isNaN(date.getTime())) {
+        return {
+            hours: date.getUTCHours(),
+            minutes: date.getUTCMinutes(),
+        };
+    }
+
+    const [rawHours = "0", rawMinutes = "0"] = String(value).split(":");
+    return {
+        hours: Number(rawHours),
+        minutes: Number(rawMinutes),
+    };
+};
+
+const getNextTurnoDateForHorario = (horario: any): Date | null => {
+    const targetDay = dayIndex(horario?.diaSemana);
+    if (targetDay === null) return null;
+
+    const now = getArgentinaDate();
+    const { hours, minutes } = getWallClockTime(horario?.horaIni);
+    const baseDate = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        hours,
+        minutes,
+        0,
+        0
+    ));
+    const offset = (targetDay - baseDate.getUTCDay() + 7) % 7;
+    baseDate.setUTCDate(baseDate.getUTCDate() + offset);
+
+    if (baseDate <= now) {
+        baseDate.setUTCDate(baseDate.getUTCDate() + 7);
+    }
+
+    return baseDate;
+};
+
+const enrichHorariosWithCupos = async <T extends { HorariosClase?: any[] }>(clase: T): Promise<T> => {
+    const horarios = clase.HorariosClase ?? [];
+
+    const enrichedHorarios = await Promise.all(horarios.map(async (horario) => {
+        const fechaProximoTurno = getNextTurnoDateForHorario(horario);
+        const cuposUsados = fechaProximoTurno
+            ? await prisma.turno.count({
+                where: {
+                    ID_HorarioClase: horario.ID_HorarioClase,
+                    fecha: fechaProximoTurno,
+                    estado: { in: activeTurnoStates },
+                },
+            })
+            : 0;
+        const cuposTotales = Number(horario.cupos ?? 0);
+
+        return {
+            ...horario,
+            cuposUsados,
+            cuposDisponibles: Math.max(cuposTotales - cuposUsados, 0),
+            fechaProximoTurno,
+        };
+    }));
+
+    return {
+        ...clase,
+        HorariosClase: enrichedHorarios,
+    };
+};
 
 const getAllClasesAndHorarioClases = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -23,13 +120,33 @@ const getAllClasesAndHorarioClases = async (req: Request, res: Response): Promis
             },
         });
 
+        // Contar TurnosFijos activos por HorarioClase
+        const horarioIds = clases.flatMap(c => c.HorariosClase.map(h => h.ID_HorarioClase));
+        const turnosFijosCounts = await prisma.turnoFijo.groupBy({
+            by: ['ID_HorarioClase'],
+            where: { ID_HorarioClase: { in: horarioIds }, activo: true },
+            _count: { ID_HorarioClase: true },
+        });
+        const countMap = new Map(turnosFijosCounts.map(t => [t.ID_HorarioClase, t._count.ID_HorarioClase]));
+
+        // Adjuntar conteo a cada horario
+        for (const clase of clases) {
+            for (const h of clase.HorariosClase) {
+                (h as any).turnosFijosCount = countMap.get(h.ID_HorarioClase) || 0;
+            }
+        }
+
         // Para cada clase, si tiene un public_id en imagenClase,
         // reemplazamos por la URL completa de Cloudinary
-        const clasesConUrl = clases.map(clase => ({
-            ...clase,
-            imagenClase: clase.imagenClase
-                ? getImageUrl(clase.imagenClase)
-                : null,
+        const clasesConUrl = await Promise.all(clases.map(async (clase) => {
+            const claseConCupos = await enrichHorariosWithCupos(clase);
+
+            return {
+                ...claseConCupos,
+                imagenClase: clase.imagenClase
+                    ? getImageUrl(clase.imagenClase)
+                    : null,
+            };
         }));
 
         res.status(200).json(clasesConUrl);
@@ -80,8 +197,10 @@ const getClaseById = async (req: Request, res: Response): Promise<void> => {
         }));
 
         // Enviar clase con URLs resueltas
+        const claseConCupos = await enrichHorariosWithCupos(clase);
+
         res.status(200).json({
-            ...clase,
+            ...claseConCupos,
             imagenClase: imagenClaseUrl,
             Entrenadores: entrenadoresConUrl
         });
@@ -233,6 +352,26 @@ const timePartsFromDate = (d: Date) => ({ h: d.getUTCHours(), m: d.getUTCMinutes
      "cupos": 10
    }
 ------------------------------------------------------------------------------- */
+/* Cantidad de turnos sacados (ACTIVOS futuros) de un HorarioClase.
+   Lo usa el front para decidir si pregunta preserve/instant antes de editar. */
+export const getTurnosActivosByHorario = async (req: Request, res: Response): Promise<void> => {
+    const idHorario = parseInt(req.params.id, 10);
+    if (isNaN(idHorario)) {
+        res.status(400).json({ message: 'ID de horario inválido' });
+        return;
+    }
+    try {
+        // Mismo criterio temporal que usa modifyHorarioSingle (instant mueve fecha >= now)
+        const turnosActivos = await prisma.turno.count({
+            where: { ID_HorarioClase: idHorario, estado: 'ACTIVO', fecha: { gte: new Date() } },
+        });
+        res.status(200).json({ idHorario, turnosActivos });
+    } catch (error: any) {
+        console.error('getTurnosActivosByHorario error:', error);
+        res.status(500).json({ message: 'Error al consultar turnos del horario', error: error.message });
+    }
+};
+
 export const modifyHorarioSingle = async (req: Request, res: Response) => {
     const idHorario = Number(req.params.id);
     const { updateMode = 'instant', diaSemana, horaIni, horaFin, cupos } = req.body;
@@ -266,6 +405,10 @@ export const modifyHorarioSingle = async (req: Request, res: Response) => {
                 const existingIniParts = timePartsFromDate(parseDate(existing.horaIni));
                 const incomingIniParts = timePartsFromDate(incomingHoraIni);
                 const sameTime = existingIniParts.h === incomingIniParts.h && existingIniParts.m === incomingIniParts.m && existingIniParts.s === incomingIniParts.s;
+                // También comparar horaFin: un cambio de duración solo modifica el fin.
+                const existingFinParts = timePartsFromDate(parseDate(existing.horaFin));
+                const incomingFinParts = timePartsFromDate(incomingHoraFin);
+                const sameTimeFin = existingFinParts.h === incomingFinParts.h && existingFinParts.m === incomingFinParts.m;
                 const sameCupos = Number(existing.cupos ?? 0) === incomingCupos;
 
                 if (!turnosCount) {
@@ -285,7 +428,7 @@ export const modifyHorarioSingle = async (req: Request, res: Response) => {
 
                 // hay turnos
                 // Si el incoming es exactamente igual al existente -> no tiene sentido crear duplicado; devolvemos info
-                if (sameDay && sameTime && sameCupos) {
+                if (sameDay && sameTime && sameTimeFin && sameCupos) {
                     return { mode: 'preserve', action: 'no_change_existing_with_turnos', message: 'Los valores ingresados son iguales a los del registro existente; no se creó nuevo horario.' };
                 }
 
@@ -753,6 +896,7 @@ export const claseMethods = {
     createClaseWithHorarios,
     updateClaseFields,
     modifyHorarioSingle,
+    getTurnosActivosByHorario,
     deleteClaseWithHorarios,
     getAllClasesAndHorarioClases,
     asignarEntrenadorAClase,

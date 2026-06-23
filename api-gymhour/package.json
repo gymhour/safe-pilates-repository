@@ -3,12 +3,16 @@
   "type": "module",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "dist/app.js",
   "scripts": {
     "clean": "rimraf dist",
     "dev": "npm run clean && tsc-watch --noClear -p tsconfig.json --onSuccess \"node dist/app.js\"",
-    "build": "tsc && prisma generate && npx prisma db push",
-    "vercel-build": "npx prisma generate && npx prisma db push && npm run clean && tsc"
+    "build": "tsc && prisma generate && prisma migrate deploy",
+    "vercel-build": "npx prisma generate && npx prisma migrate deploy && npm run clean && tsc",
+    "seed": "node prisma/seed.js"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "keywords": [],
   "author": "",
