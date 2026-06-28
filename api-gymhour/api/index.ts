@@ -1,10 +1,11 @@
 // import app from '../src/app.js'
 // export default app;
+import type { NextFunction, Request, Response } from "express";
 import app from "../dist/app.js";     // tu Express "app"
 
-export default function handler(req, res) {
+export default function handler(req: Request, res: Response) {
   return new Promise<void>((resolve, reject) => {
-    app(req, res, (err) => {
+    app(req, res, (err: Parameters<NextFunction>[0]) => {
       if (err) return reject(err);
       resolve();
     });
