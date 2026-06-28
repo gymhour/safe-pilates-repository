@@ -3,10 +3,11 @@
 import 'dotenv/config';
 import cors from "cors";
 import dotenv from 'dotenv';
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import { rateLimit } from "express-rate-limit";
-import * as helmet from "helmet";
+import { contentSecurityPolicy, type HelmetOptions } from "helmet";
 import morgan from 'morgan';
+import { createRequire } from 'module';
 import { dirname, join } from 'path';
 import swaggerUi from 'swagger-ui-express';
 import { fileURLToPath } from 'url';
@@ -27,16 +28,19 @@ import rutinaRoutes from './routes/rutina.Routes.js';
 import turnoRoutes from './routes/turno.Routes.js';
 import userRouter from './routes/user.Routes.js';
 
+const require = createRequire(import.meta.url);
+const helmet = require("helmet") as (options?: Readonly<HelmetOptions>) => RequestHandler;
+
 dotenv.config();
 // :=)
 const app = express();
 // Seguridad básicaaaa
 app.set('trust proxy', 1);
 app.use(
-    helmet.default({
+    helmet({
         contentSecurityPolicy: {
             directives: {
-                ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+                ...contentSecurityPolicy.getDefaultDirectives(),
                 "script-src": ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
                 "img-src": ["'self'", "data:", "validator.swagger.io"],
                 "style-src": ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
