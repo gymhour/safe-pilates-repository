@@ -7,8 +7,8 @@
   "scripts": {
     "clean": "rimraf dist",
     "dev": "npm run clean && tsc-watch --noClear -p tsconfig.json --onSuccess \"node dist/app.js\"",
-    "build": "tsc && prisma generate && prisma migrate deploy",
-    "vercel-build": "npx prisma generate && npx prisma migrate deploy && npm run clean && tsc",
+    "build": "tsc && npx prisma generate",
+    "vercel-build": "npx prisma generate && npm run clean && tsc",
     "seed": "node prisma/seed.js"
   },
   "prisma": {
