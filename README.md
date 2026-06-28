@@ -57,7 +57,6 @@ SMTP_FROM=usuario@example.com
 CLOUDINARY_NAME=cloud-name
 CLOUDINARY_API_KEY=api-key
 CLOUDINARY_SECRET_KEY=secret
-OPENAI_API_KEY=api-key
 TIMEZONE=America/Argentina/Cordoba
 ```
 
@@ -103,7 +102,7 @@ Ese script genera Prisma, sincroniza el schema con `npx prisma db push` y compil
 - Crear o seleccionar la base de datos MySQL del cliente.
 - Configurar `DATABASE_URL` con la base correcta.
 - Configurar `FRONTEND_URL` con el dominio final del frontend.
-- Configurar las variables extra necesarias para email, imagenes, auth y asistente.
+- Configurar las variables extra necesarias para email, imagenes y auth.
 - Ejecutar el deploy.
 - Verificar que la API responda correctamente.
 - Verificar que `npx prisma db push` haya sincronizado el schema sin errores.

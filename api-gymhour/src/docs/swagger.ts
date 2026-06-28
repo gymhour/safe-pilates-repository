@@ -734,46 +734,6 @@ export const swaggerDocument = {
         }
       }
     },
-    "/asistente/prompt": {
-      "post": {
-        "tags": ["Asistente IA"],
-        "summary": "Consultar al asistente virtual inteligente (RAG)",
-        "description": "Realiza una consulta en lenguaje natural al asistente del gimnasio (entrenado con IA) sobre clases, entrenamientos o cuotas.",
-        "security": [{ "bearerAuth": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "prompt": {
-                    "type": "string",
-                    "example": "¿Qué clases hay disponibles?",
-                    "description": "Consulta del alumno"
-                  }
-                },
-                "required": ["prompt"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Respuesta generada con éxito.",
-            "content": {
-              "application/json": {
-                "example": {
-                  "respuesta": "Hola! Disponemos de clases de Crossfit, Yoga y Musculación. ¿Te interesa algún horario?"
-                }
-              }
-            }
-          },
-          "400": { "description": "Falta el campo obligatorio 'prompt'." },
-          "500": { "description": "Error interno al invocar la IA." }
-        }
-      }
-    },
     "/planes": {
       "get": {
         "tags": ["Planes"],
