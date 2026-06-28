@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from 'dotenv';
 import express from 'express';
 import { rateLimit } from "express-rate-limit";
-import helmet, { contentSecurityPolicy } from "helmet";
+import * as helmet from "helmet";
 import morgan from 'morgan';
 import { dirname, join } from 'path';
 import swaggerUi from 'swagger-ui-express';
@@ -33,10 +33,10 @@ const app = express();
 // Seguridad básicaaaa
 app.set('trust proxy', 1);
 app.use(
-    helmet({
+    helmet.default({
         contentSecurityPolicy: {
             directives: {
-                ...contentSecurityPolicy.getDefaultDirectives(),
+                ...helmet.contentSecurityPolicy.getDefaultDirectives(),
                 "script-src": ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
                 "img-src": ["'self'", "data:", "validator.swagger.io"],
                 "style-src": ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
