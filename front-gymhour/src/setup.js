@@ -1,14 +1,14 @@
-import loginLogoDark from './assets/gymhour/logo_gymhour_sin_texto.png';
-import loginLogoLight from './assets/gymhour/logo_gymhour_sin_texto_negro.png';
-import sidebarLogoDark from './assets/gymhour/logo_gymhour.png';
-import sidebarLogoLight from './assets/gymhour/logo_gymhour_black.png';
+import loginLogoDark from './assets/gymhour/safe_logo.png';
+import loginLogoLight from './assets/gymhour/safe_logo.png';
+import sidebarLogoDark from './assets/gymhour/safe_logo.png';
+import sidebarLogoLight from './assets/gymhour/safe_logo.png';
 // import clientLogo from './assets/client/ag_entrenamiento.png';
 
 const CLIENT_SETUP = {
   apiUrl: process.env.REACT_APP_API_URL || 'http://localhost:3000',
 
   branding: {
-    name: 'GymHour',
+    name: 'Safe Pilates',
     logoAlt: 'Logo del gimnasio',
     logos: {
       login: {
@@ -27,11 +27,11 @@ const CLIENT_SETUP = {
       },
     },
     theme: {
-      primaryColor: '#DA4632',
-      primaryColorHover: '#ee452f',
-      backgroundHoverColor: '#da463244',
-      loginInputFocusShadowDark: '0 0 0 4px rgba(218, 70, 50, 0.16)',
-      loginInputFocusShadowLight: '0 0 0 3px rgba(218, 70, 50, 0.15)',
+      primaryColor: '#e055a8',
+      primaryColorHover: '#c93f91',
+      backgroundHoverColor: '#e055a826',
+      loginInputFocusShadowDark: '0 0 0 4px rgba(224, 85, 168, 0.18)',
+      loginInputFocusShadowLight: '0 0 0 3px rgba(224, 85, 168, 0.16)',
     },
   },
 
