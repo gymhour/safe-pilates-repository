@@ -36,13 +36,13 @@ const CLIENT_SETUP = {
   },
 
   payment: {
-    accountHolder: 'JUAN PEREZ',
-    alias: 'gymhour.alias',
-    cbu: '00700238-30004046522411',
-    cuil: '20-35752545-5',
+    accountHolder: 'SAFE GYM',
+    alias: 'safe.entrenamientos',
+    cbu: '',
+    cuil: '',
     whatsapp: {
-      phoneNumber: '5493406423587',
-      message: 'Hola AG Entrenamientos! Les comparto el comprobante de pago de este mes:',
+      phoneNumber: '5491136113460',
+      message: 'Hola Safe! Les comparto el comprobante de pago de este mes:',
     },
   },
 };
